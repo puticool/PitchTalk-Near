@@ -9,7 +9,7 @@ const printLogo = require('./src/logo');
 
 class Pitchtalk {
     constructor() {
-        this.headers = {
+        this.baseHeaders = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "en-US,en;q=0.9",
@@ -29,14 +29,6 @@ class Pitchtalk {
             'c51fbe56-b913-470d-9bac-6cacc9e4864f'
         ];
         this.proxies = this.loadProxies();
-    }
-
-    loadProxies() {
-        const proxyFile = path.join(__dirname, 'proxy.txt');
-        return fs.readFileSync(proxyFile, 'utf8')
-            .replace(/\r/g, '')
-            .split('\n')
-            .filter(Boolean);
     }
 
     log(msg, type = 'info') {
@@ -82,11 +74,21 @@ class Pitchtalk {
         }
     }
 
-    async makeRequest(method, url, data = null, token = null, proxyIndex) {
+    loadProxies() {
+        const proxyFile = path.join(__dirname, 'proxy.txt');
+        return fs.readFileSync(proxyFile, 'utf8')
+            .replace(/\r/g, '')
+            .split('\n')
+            .filter(Boolean);
+    }
+    async makeRequest(method, url, data = null, token = null, proxyIndex, hash) {
         const config = {
             method,
             url,
-            headers: { ...this.headers },
+            headers: {
+                ...this.baseHeaders,
+                "X-Telegram-Hash": hash
+            },
             httpsAgent: new HttpsProxyAgent(this.proxies[proxyIndex])
         };
 
@@ -121,8 +123,8 @@ class Pitchtalk {
         };
 
         try {
-            const response = await this.makeRequest('post', url, payload, null, proxyIndex);
-            if (response && response.status === 201) {
+            const response = await this.makeRequest('post', url, payload, null, proxyIndex, hash);
+            if (response) {
                 const { coins, tickets, loginStreak, farmingId } = response.data.user;
                 return { accessToken: response.data.accessToken, username, coins, tickets, loginStreak, farmingId };
             } else {
@@ -134,12 +136,12 @@ class Pitchtalk {
         }
     }
 
-    async createFarming(token, proxyIndex) {
+    async createFarming(token, proxyIndex, hash) {
         const url = "https://api.pitchtalk.app/v1/api/users/create-farming";
 
         try {
-            const response = await this.makeRequest('post', url, {}, token, proxyIndex);
-            if (response && response.status === 201) {
+            const response = await this.makeRequest('post', url, {}, token, proxyIndex, hash);
+            if (response) {
                 const { farmingId, farming } = response.data;
                 const endTime = DateTime.fromISO(farming.endTime);
                 this.log(`Farming started with id: ${farmingId} 🚜`, 'success');
@@ -154,11 +156,11 @@ class Pitchtalk {
         }
     }
 
-    async getFarming(token, proxyIndex) {
+    async getFarming(token, proxyIndex, hash) {
         const url = "https://api.pitchtalk.app/v1/api/farmings";
 
         try {
-            const response = await this.makeRequest('get', url, null, token, proxyIndex);
+            const response = await this.makeRequest('get', url, null, token, proxyIndex, hash);
             if (response && response.status === 200) {
                 const farming = response.data;
                 const now = DateTime.now();
@@ -168,8 +170,8 @@ class Pitchtalk {
                     this.log(`Farming in progress with id: ${farming.id} 🚜`, 'success');
                     this.log(`Completion time: ${endTime.toLocaleString(DateTime.DATETIME_FULL)}`, 'info');
                 } else {
-                    await this.claimFarming(token, proxyIndex);
-                    const newFarming = await this.createFarming(token, proxyIndex);
+                    await this.claimFarming(token, proxyIndex, hash);
+                    const newFarming = await this.createFarming(token, proxyIndex, hash);
                     if (newFarming) {
                         const newEndTime = DateTime.fromISO(newFarming.endTime);
                         this.log(`Started new farming with id: ${newFarming.id} 🚜`, 'success');
@@ -186,11 +188,11 @@ class Pitchtalk {
         }
     }
 
-    async claimFarming(token, proxyIndex) {
+    async claimFarming(token, proxyIndex, hash) {
         const url = "https://api.pitchtalk.app/v1/api/users/claim-farming";
 
         try {
-            const response = await this.makeRequest('post', url, {}, token, proxyIndex);
+            const response = await this.makeRequest('post', url, {}, token, proxyIndex, hash);
             if (response) {
                 this.log('Successfully claimed farming rewards 🎁!', 'success');
                 return response.data;
@@ -203,11 +205,11 @@ class Pitchtalk {
         }
     }
 
-    async getTasks(token, proxyIndex) {
+    async getTasks(token, proxyIndex, hash) {
         const url = "https://api.pitchtalk.app/v1/api/tasks";
 
         try {
-            const response = await this.makeRequest('get', url, null, token, proxyIndex);
+            const response = await this.makeRequest('get', url, null, token, proxyIndex, hash);
             if (response && response.status === 200) {
                 return response.data;
             } else {
@@ -219,12 +221,12 @@ class Pitchtalk {
         }
     }
 
-    async startTask(token, taskId, proxyIndex) {
+    async startTask(token, taskId, proxyIndex, hash) {
         const url = `https://api.pitchtalk.app/v1/api/tasks/${taskId}/start`;
 
         try {
-            const response = await this.makeRequest('post', url, {}, token, proxyIndex);
-            if (response && response.status === 201) {
+            const response = await this.makeRequest('post', url, {}, token, proxyIndex, hash);
+            if (response) {
                 return response.data;
             } else {
                 throw new Error(`Failed to start task with status ${response ? response.status : 'unknown'}`);
@@ -235,11 +237,11 @@ class Pitchtalk {
         }
     }
 
-    async verifyTasks(token, proxyIndex) {
+    async verifyTasks(token, proxyIndex, hash) {
         const url = "https://api.pitchtalk.app/v1/api/tasks/verify";
 
         try {
-            const response = await this.makeRequest('get', url, null, token, proxyIndex);
+            const response = await this.makeRequest('get', url, null, token, proxyIndex, hash);
             if (response && response.status === 200) {
                 return response.data;
             } else {
@@ -280,23 +282,23 @@ class Pitchtalk {
                     this.log(`💰: ${coins}, 🎟️: ${tickets}, 🔥: ${loginStreak}`, 'info');
                     
                     if (farmingId === null) {
-                        await this.createFarming(accessToken, i);
+                        await this.createFarming(accessToken, i, hash);
                     } else {
-                        await this.getFarming(accessToken, i);
+                        await this.getFarming(accessToken, i, hash);
                     }
 
-                    const tasks = await this.getTasks(accessToken, i);
+                    const tasks = await this.getTasks(accessToken, i, hash);
                     if (tasks) {
                         for (const task of tasks) {
                             if (task.status === 'INITIAL' && !this.skippedTaskIds.includes(task.id)) {
-                                const startResult = await this.startTask(accessToken, task.id, i);
+                                const startResult = await this.startTask(accessToken, task.id, i, hash);
                                 if (startResult) {
                                     this.log(`Started task: ${task.template.title} ✅`, 'success');
                                 }
                             }
                         }
 
-                        const verifyResult = await this.verifyTasks(accessToken, i);
+                        const verifyResult = await this.verifyTasks(accessToken, i, hash);
                         if (verifyResult) {
                             for (const task of verifyResult) {
                                 if (task.status === 'COMPLETED_CLAIMED') {

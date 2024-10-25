@@ -8,7 +8,7 @@ const printLogo = require('./src/logo');
 
 class Pitchtalk {
     constructor() {
-        this.headers = {
+        this.baseHeaders = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "en-US,en;q=0.9",
@@ -50,7 +50,6 @@ class Pitchtalk {
         }
     }
 
-    // Countdown function with dynamic message
     async countdown(seconds) {
         for (let i = seconds; i >= 0; i--) {
             readline.cursorTo(process.stdout, 0);
@@ -60,7 +59,19 @@ class Pitchtalk {
         console.log('');
     }
 
-    // Function to authenticate the user based on a hash
+    getHeaders(hash, token = null) {
+        const headers = {
+            ...this.baseHeaders,
+            "X-Telegram-Hash": hash
+        };
+        
+        if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+        }
+        
+        return headers;
+    }
+
     async auth(hash) {
         const url = "https://api.pitchtalk.app/v1/api/auth";
         const telegramId = hash.match(/id%22%3A(\d+)/)[1];
@@ -75,8 +86,8 @@ class Pitchtalk {
         };
 
         try {
-            const response = await axios.post(url, payload, { headers: this.headers });
-            if (response.status === 201) {
+            const response = await axios.post(url, payload, { headers: this.getHeaders(hash) });
+            if (response) {
                 const { coins, tickets, loginStreak, farmingId } = response.data.user;
                 return { accessToken: response.data.accessToken, username, coins, tickets, loginStreak, farmingId };
             } else {
@@ -88,14 +99,12 @@ class Pitchtalk {
         }
     }
 
-    // Function to create farming
-    async createFarming(token) {
+    async createFarming(token, hash) {
         const url = "https://api.pitchtalk.app/v1/api/users/create-farming";
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}` };
 
         try {
-            const response = await axios.post(url, {}, { headers });
-            if (response.status === 201) {
+            const response = await axios.post(url, {}, { headers: this.getHeaders(hash, token) });
+            if (response) {
                 const { farmingId, farming } = response.data;
                 const endTime = DateTime.fromISO(farming.endTime);
                 this.log(`Started farming with ID: ${farmingId} 🚜`, 'success');
@@ -110,13 +119,11 @@ class Pitchtalk {
         }
     }
 
-    // Get farming status and handle the process
-    async getFarming(token) {
+    async getFarming(token, hash) {
         const url = "https://api.pitchtalk.app/v1/api/farmings";
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}` };
 
         try {
-            const response = await axios.get(url, { headers });
+            const response = await axios.get(url, { headers: this.getHeaders(hash, token) });
             if (response.status === 200) {
                 const farming = response.data;
                 const now = DateTime.now();
@@ -126,8 +133,8 @@ class Pitchtalk {
                     this.log(`Currently farming with ID: ${farming.id} 🚜`, 'success');
                     this.log(`Completion time: ${endTime.toLocaleString(DateTime.DATETIME_FULL)}`, 'info');
                 } else {
-                    await this.claimFarming(token);
-                    const newFarming = await this.createFarming(token);
+                    await this.claimFarming(token, hash);
+                    const newFarming = await this.createFarming(token, hash);
                     if (newFarming) {
                         const newEndTime = DateTime.fromISO(newFarming.endTime);
                         this.log(`Started new farming with ID: ${newFarming.id} 🚜`, 'success');
@@ -144,13 +151,11 @@ class Pitchtalk {
         }
     }
 
-    // Claim farming rewards
-    async claimFarming(token) {
+    async claimFarming(token, hash) {
         const url = "https://api.pitchtalk.app/v1/api/users/claim-farming";
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}` };
 
         try {
-            const response = await axios.post(url, {}, { headers });
+            const response = await axios.post(url, {}, { headers: this.getHeaders(hash, token) });
             if (response) {
                 this.log('Successfully claimed farming rewards 🎁', 'success');
                 return response.data;
@@ -163,13 +168,11 @@ class Pitchtalk {
         }
     }
 
-    // Get available tasks
-    async getTasks(token) {
+    async getTasks(token, hash) {
         const url = "https://api.pitchtalk.app/v1/api/tasks";
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}` };
 
         try {
-            const response = await axios.get(url, { headers });
+            const response = await axios.get(url, { headers: this.getHeaders(hash, token) });
             if (response.status === 200) {
                 return response.data;
             } else {
@@ -181,14 +184,12 @@ class Pitchtalk {
         }
     }
 
-    // Start a specific task
-    async startTask(token, taskId) {
+    async startTask(token, hash, taskId) {
         const url = `https://api.pitchtalk.app/v1/api/tasks/${taskId}/start`;
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}` };
 
         try {
-            const response = await axios.post(url, {}, { headers });
-            if (response.status === 201) {
+            const response = await axios.post(url, {}, { headers: this.getHeaders(hash, token) });
+            if (response) {
                 return response.data;
             } else {
                 throw new Error(`Failed to start task. Status: ${response.status}`);
@@ -199,13 +200,11 @@ class Pitchtalk {
         }
     }
 
-    // Verify and claim rewards for completed tasks
-    async verifyTasks(token) {
+    async verifyTasks(token, hash) {
         const url = "https://api.pitchtalk.app/v1/api/tasks/verify";
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}` };
 
         try {
-            const response = await axios.get(url, { headers });
+            const response = await axios.get(url, { headers: this.getHeaders(hash, token) });
             if (response.status === 200) {
                 return response.data;
             } else {
@@ -217,7 +216,6 @@ class Pitchtalk {
         }
     }
 
-    // Main function to manage the logic
     async main() {
         const dataFile = path.join(__dirname, 'data.txt');
         const data = fs.readFileSync(dataFile, 'utf8')
@@ -237,23 +235,23 @@ class Pitchtalk {
                     this.log(`💰 Coins: ${coins}, 🎟️ Tickets: ${tickets}, 🔥 Login Streak: ${loginStreak}`, 'info');
                     
                     if (farmingId === null) {
-                        await this.createFarming(accessToken);
+                        await this.createFarming(accessToken, hash);
                     } else {
-                        await this.getFarming(accessToken);
+                        await this.getFarming(accessToken, hash);
                     }
 
-                    const tasks = await this.getTasks(accessToken);
+                    const tasks = await this.getTasks(accessToken, hash);
                     if (tasks) {
                         for (const task of tasks) {
                             if (task.status === 'INITIAL' && !this.skippedTaskIds.includes(task.id)) {
-                                const startResult = await this.startTask(accessToken, task.id);
+                                const startResult = await this.startTask(accessToken, hash, task.id);
                                 if (startResult) {
                                     this.log(`Started task: ${task.template.title} ✅`, 'success');
                                 }
                             }
                         }
 
-                        const verifyResult = await this.verifyTasks(accessToken);
+                        const verifyResult = await this.verifyTasks(accessToken, hash);
                         if (verifyResult) {
                             for (const task of verifyResult) {
                                 if (task.status === 'COMPLETED_CLAIMED') {
@@ -267,7 +265,7 @@ class Pitchtalk {
                     }
                 }
             }
-            await this.countdown(21600); // Wait for 6 hours before looping again
+            await this.countdown(21600);
         }
     }
 }
