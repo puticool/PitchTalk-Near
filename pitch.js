@@ -5,49 +5,17 @@ const colors = require('colors');
 const readline = require('readline');
 const { DateTime } = require('luxon');
 const printLogo = require('./src/logo');
+const headers = require("./src/header");
+const log = require('./src/logger');
 
 class Pitchtalk {
     constructor() {
-        this.baseHeaders = {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Content-Type": "application/json",
-            "Origin": "https://webapp.pitchtalk.app",
-            "Referer": "https://webapp.pitchtalk.app/",
-            "Sec-Ch-Ua": '"Microsoft Edge";v="129", "Not=A?Brand";v="8", "Chromium";v="129", "Microsoft Edge WebView2";v="129"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0"
-        };
+        this.baseHeaders = headers;
+        this.log = log;
         this.skippedTaskIds = [
             'aec632eb-7104-4652-938b-bc8d61f83c77',
             'c51fbe56-b913-470d-9bac-6cacc9e4864f'
         ];
-    }
-
-
-    log(msg, type = 'info') {
-        const timestamp = new Date().toLocaleTimeString();
-        switch(type) {
-            case 'success':
-                console.log(`[${timestamp}] [*] ${msg}`.green);
-                break;
-            case 'custom':
-                console.log(`[${timestamp}] [*] ${msg}`.magenta);
-                break;        
-            case 'error':
-                console.log(`[${timestamp}] [!] ${msg}`.red);
-                break;
-            case 'warning':
-                console.log(`[${timestamp}] [*] ${msg}`.yellow);
-                break;
-            default:
-                console.log(`[${timestamp}] [*] ${msg}`.blue);
-        }
     }
 
     async countdown(seconds) {
@@ -64,11 +32,11 @@ class Pitchtalk {
             ...this.baseHeaders,
             "X-Telegram-Hash": hash
         };
-        
+
         if (token) {
             headers["Authorization"] = `Bearer ${token}`;
         }
-        
+
         return headers;
     }
 
@@ -76,7 +44,7 @@ class Pitchtalk {
         const url = "https://api.pitchtalk.app/v1/api/auth";
         const telegramId = hash.match(/id%22%3A(\d+)/)[1];
         const username = hash.match(/username%22%3A%22([^%]+)/)[1];
-        
+
         const payload = {
             telegramId,
             username,
@@ -103,7 +71,7 @@ class Pitchtalk {
         const url = "https://api.pitchtalk.app/v1/api/users/create-farming";
 
         try {
-            const response = await axios.post(url, {}, { headers: this.getHeaders(hash, token) });
+            const response = await axios.get(url, { headers: this.getHeaders(hash, token) });
             if (response) {
                 const { farmingId, farming } = response.data;
                 const endTime = DateTime.fromISO(farming.endTime);
@@ -128,18 +96,13 @@ class Pitchtalk {
                 const farming = response.data;
                 const now = DateTime.now();
                 const endTime = DateTime.fromISO(farming.endTime);
-                
+
                 if (now < endTime) {
                     this.log(`Currently farming with ID: ${farming.id} 🚜`, 'success');
                     this.log(`Completion time: ${endTime.toLocaleString(DateTime.DATETIME_FULL)}`, 'info');
                 } else {
+                    this.log(`Farming with ID ${farming.id} has completed`, 'success');
                     await this.claimFarming(token, hash);
-                    const newFarming = await this.createFarming(token, hash);
-                    if (newFarming) {
-                        const newEndTime = DateTime.fromISO(newFarming.endTime);
-                        this.log(`Started new farming with ID: ${newFarming.id} 🚜`, 'success');
-                        this.log(`New completion time: ${newEndTime.toLocaleString(DateTime.DATETIME_FULL)}`, 'info');
-                    }
                 }
                 return farming;
             } else {
@@ -155,7 +118,7 @@ class Pitchtalk {
         const url = "https://api.pitchtalk.app/v1/api/users/claim-farming";
 
         try {
-            const response = await axios.post(url, {}, { headers: this.getHeaders(hash, token) });
+            const response = await axios.get(url, null, { headers: this.getHeaders(hash, token) });
             if (response) {
                 this.log('Successfully claimed farming rewards 🎁', 'success');
                 return response.data;
@@ -228,40 +191,17 @@ class Pitchtalk {
             for (let i = 0; i < data.length; i++) {
                 const hash = data[i];
                 const authResult = await this.auth(hash);
-                
+
                 if (authResult) {
                     const { accessToken, username, coins, tickets, loginStreak, farmingId } = authResult;
                     this.log(`🎮 | Account ${i + 1} | Username: ${username} | 🎮`, 'custom');
                     this.log(`💰 Coins: ${coins}, 🎟️ Tickets: ${tickets}, 🔥 Login Streak: ${loginStreak}`, 'info');
-                    
+
                     if (farmingId === null) {
                         await this.createFarming(accessToken, hash);
                     } else {
                         await this.getFarming(accessToken, hash);
-                    }
 
-                    const tasks = await this.getTasks(accessToken, hash);
-                    if (tasks) {
-                        for (const task of tasks) {
-                            if (task.status === 'INITIAL' && !this.skippedTaskIds.includes(task.id)) {
-                                const startResult = await this.startTask(accessToken, hash, task.id);
-                                if (startResult) {
-                                    this.log(`Started task: ${task.template.title} ✅`, 'success');
-                                }
-                            }
-                        }
-
-                        const verifyResult = await this.verifyTasks(accessToken, hash);
-                        if (verifyResult) {
-                            for (const task of verifyResult) {
-                                if (task.status === 'COMPLETED_CLAIMED') {
-                                    const completedTask = tasks.find(t => t.id === task.id);
-                                    if (completedTask) {
-                                        this.log(`Successfully completed task ${completedTask.template.title} | Reward: 💰 ${completedTask.template.rewardCoins}`, 'success');
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
